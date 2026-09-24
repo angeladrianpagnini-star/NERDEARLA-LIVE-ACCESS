@@ -1,4 +1,3 @@
-import { GoogleGenAI, Modality } from "@google/genai";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -8,6 +7,15 @@ type LanguageCode = "en" | "es";
 type TranslationDirection = {
   sourceLanguage: LanguageCode;
   targetLanguage: LanguageCode;
+};
+
+type GeminiAuthTokenResponse = {
+  name?: string;
+  error?: {
+    code?: number;
+    message?: string;
+    status?: string;
+  };
 };
 
 function parseDirection(
@@ -90,61 +98,60 @@ export async function POST(
         direction = parsedDirection;
       }
     } catch {
-      // Empty body preserves the existing
-      // EN -> ES behavior.
+      // Empty body preserves EN -> ES.
     }
-
-    const client = new GoogleGenAI({
-      apiKey,
-      httpOptions: {
-        apiVersion: "v1beta",
-      },
-    });
 
     const expireTime = new Date(
       Date.now() + 30 * 60 * 1000
     ).toISOString();
 
+    const newSessionExpireTime = new Date(
+      Date.now() + 60 * 1000
+    ).toISOString();
+
     const model =
       "gemini-3.5-live-translate-preview";
 
-    const token =
-      await client.authTokens.create({
-        config: {
+    const geminiResponse = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/auth_tokens",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey,
+        },
+        body: JSON.stringify({
           uses: 1,
           expireTime,
+          newSessionExpireTime,
+        }),
+        cache: "no-store",
+      }
+    );
 
-          liveConnectConstraints: {
-            model,
+    const tokenData =
+      (await geminiResponse.json()) as
+        GeminiAuthTokenResponse;
 
-            config: {
-              responseModalities: [
-                Modality.AUDIO,
-              ],
+    if (
+      !geminiResponse.ok ||
+      !tokenData.name
+    ) {
+      console.error(
+        "Gemini AuthTokenService rejected token request:",
+        {
+          status: geminiResponse.status,
+          error: tokenData.error,
+        }
+      );
 
-              inputAudioTranscription: {},
-
-              outputAudioTranscription: {},
-
-              translationConfig: {
-                targetLanguageCode:
-                  direction.targetLanguage,
-
-                echoTargetLanguage: true,
-              },
-            },
-          },
-        },
-      });
-
-    if (!token.name) {
       throw new Error(
-        "Gemini did not return an ephemeral translation token"
+        `Gemini AuthTokenService returned ${geminiResponse.status}`
       );
     }
 
     return NextResponse.json({
-      token: token.name,
+      token: tokenData.name,
       model,
       sourceLanguage:
         direction.sourceLanguage,
