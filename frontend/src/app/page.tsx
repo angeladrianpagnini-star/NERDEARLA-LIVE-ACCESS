@@ -11,6 +11,11 @@ import {
   TECHNICAL_GLOSSARY,
 } from "@/lib/technical-glossary";
 
+type AppView =
+  | "home"
+  | "conference"
+  | "conversation";
+
 type StageId = "stage-a" | "stage-b";
 
 type StageState = {
@@ -41,6 +46,8 @@ function initialStage(
 }
 
 export default function Home() {
+  const [appView, setAppView] =
+    useState<AppView>("home");
   const [stageA, setStageA] = useState<StageState>(
     initialStage("stage-a", "Stage A")
   );
@@ -233,9 +240,159 @@ export default function Home() {
     stageA.status === "STREAMING" &&
     stageB.status === "STREAMING";
 
+  if (appView === "home") {
+    return (
+      <main className="min-h-screen bg-slate-950 text-white">
+        <div className="mx-auto max-w-6xl px-6 py-12">
+          <header className="mb-10">
+            <p className="text-sm font-semibold uppercase tracking-[0.25em] text-cyan-400">
+              Nerdearla Vibeathon 2026
+            </p>
+
+            <h1 className="mt-2 text-4xl font-bold">
+              Nerdearla Live Access
+            </h1>
+
+            <p className="mt-3 max-w-2xl text-slate-400">
+              Real-time multilingual accessibility and session documentation.
+            </p>
+          </header>
+
+          <section className="grid gap-6 lg:grid-cols-2">
+            <article className="flex flex-col rounded-3xl border border-slate-800 bg-slate-900 p-7 shadow-xl">
+              <div className="text-xs font-semibold uppercase tracking-widest text-cyan-400">
+                Conference Mode
+              </div>
+
+              <h2 className="mt-3 text-2xl font-bold">
+                Live Conference
+              </h2>
+
+              <p className="mt-3 text-slate-400">
+                Continuous transcription and translation with speakers,
+                segments, session memory, and subtitle-ready records.
+              </p>
+
+              <div className="mt-6 space-y-2 text-sm text-slate-300">
+                <p>Live transcription and translation</p>
+                <p>Multiple speakers and segments</p>
+                <p>Pause and resume without losing history</p>
+                <p>Session and subtitle export</p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setAppView("conference")}
+                className="mt-8 rounded-xl bg-white px-5 py-3 font-semibold text-slate-950"
+              >
+                Start Conference
+              </button>
+            </article>
+
+            <article className="flex flex-col rounded-3xl border border-slate-800 bg-slate-900 p-7 shadow-xl">
+              <div className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
+                Conversation Mode
+              </div>
+
+              <h2 className="mt-3 text-2xl font-bold">
+                Bilingual Conversation
+              </h2>
+
+              <p className="mt-3 text-slate-400">
+                Alternating bilingual dialogue with persistent speaker turns
+                and a complete conversation record.
+              </p>
+
+              <div className="mt-6 space-y-2 text-sm text-slate-300">
+                <p>English to Spanish</p>
+                <p>Spanish to English</p>
+                <p>Speaker A and Speaker B turns</p>
+                <p>Persistent conversation history</p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setAppView("conversation")}
+                className="mt-8 rounded-xl bg-white px-5 py-3 font-semibold text-slate-950"
+              >
+                Start Conversation
+              </button>
+            </article>
+          </section>
+
+          <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-widest text-cyan-400">
+                  Infrastructure
+                </div>
+                <div className="mt-1 font-semibold">
+                  2+ simultaneous live sessions supported
+                </div>
+              </div>
+
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
+                  Terminology
+                </div>
+                <div className="mt-1 font-semibold">
+                  Technical glossary active
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-slate-950 text-white">
       <div className="mx-auto max-w-7xl px-6 py-10">
+
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+
+
+          <button
+
+
+            type="button"
+
+
+            onClick={() => setAppView("home")}
+
+
+            className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold"
+
+
+          >
+
+
+            Back to Mode Selection
+
+
+          </button>
+
+
+
+          <div className="rounded-full border border-slate-700 px-4 py-2 text-xs font-semibold uppercase tracking-widest text-cyan-400">
+
+
+            {appView === "conference"
+
+
+              ? "Conference Mode"
+
+
+              : "Conversation Mode"}
+
+
+          </div>
+
+
+        </div>
+
+
 
         <header className="mb-8">
           <p className="text-sm font-semibold uppercase tracking-[0.25em] text-cyan-400">
