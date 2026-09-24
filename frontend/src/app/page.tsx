@@ -26,111 +26,146 @@ export default function Home() {
   const [status, setStatus] =
     useState<ConnectionStatus>("DISCONNECTED");
 
-  const [interim, setInterim] = useState("");
-  const [finalTranscript, setFinalTranscript] = useState("");
+  const [originalText, setOriginalText] =
+    useState("");
+
+  const [translatedText, setTranslatedText] =
+    useState("");
+
   const [chunks, setChunks] = useState(0);
   const [seconds, setSeconds] = useState(0);
   const [error, setError] = useState("");
 
   const sessionRef = useRef<Session | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const workletRef = useRef<AudioWorkletNode | null>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(
-    null
-  );
+  const audioContextRef =
+    useRef<AudioContext | null>(null);
 
-  const startLiveTranscription = async () => {
+  const workletRef =
+    useRef<AudioWorkletNode | null>(null);
+
+  const timerRef =
+    useRef<ReturnType<typeof setInterval> | null>(
+      null
+    );
+
+  const startTranslation = async () => {
     try {
       setError("");
-      setInterim("");
-      setFinalTranscript("");
+      setOriginalText("");
+      setTranslatedText("");
       setChunks(0);
       setSeconds(0);
       setStatus("CONNECTING");
 
       //
-      // 1. Request a short-lived token from our server.
+      // 1. Obtain constrained ephemeral translation token.
       //
-      const tokenResponse = await fetch("/api/token", {
-        method: "POST",
-      });
+      const tokenResponse = await fetch(
+        "/api/translate-token",
+        {
+          method: "POST",
+        }
+      );
 
       if (!tokenResponse.ok) {
         throw new Error(
-          `Token provisioning failed (${tokenResponse.status})`
+          `Translation token provisioning failed (${tokenResponse.status})`
         );
       }
 
-      const tokenData = await tokenResponse.json();
+      const tokenData =
+        await tokenResponse.json();
 
       if (!tokenData.token) {
-        throw new Error("No ephemeral token received");
+        throw new Error(
+          "No translation token received"
+        );
       }
 
       //
-      // 2. Connect directly to Gemini Live using the ephemeral token.
+      // 2. Connect browser directly to Gemini Live Translate.
       //
       const ai = new GoogleGenAI({
         apiKey: tokenData.token,
         httpOptions: {
-          apiVersion: "v1alpha",
+          apiVersion: "v1beta",
         },
       });
 
       const session = await ai.live.connect({
-        model: "gemini-3.5-transcribe-live",
+        model: tokenData.model,
 
         config: {
-          responseModalities: [Modality.TEXT],
+          responseModalities: [
+            Modality.AUDIO,
+          ],
 
-          inputAudioTranscription: {
-            languageCodes: ["es-419"],
+          inputAudioTranscription: {},
+
+          outputAudioTranscription: {},
+
+          translationConfig: {
+            targetLanguageCode: "es",
+            echoTargetLanguage: true,
           },
         },
 
         callbacks: {
           onopen: () => {
-            console.log("Gemini Live connected");
+            console.log(
+              "Gemini Live Translate connected"
+            );
+
             setStatus("CONNECTED");
           },
 
           onmessage: (message) => {
-            const content = message.serverContent;
+            const content =
+              message.serverContent;
 
             if (!content) {
               return;
             }
 
-            const interimText =
-              content.interimInputTranscription?.text;
+            //
+            // Original speech transcript.
+            //
+            if (
+              content.inputTranscription?.text
+            ) {
+              const text =
+                content.inputTranscription.text;
 
-            if (interimText) {
-              setInterim(interimText);
+              setOriginalText(
+                (current) => current + text
+              );
             }
 
-            const finalText =
-              content.inputTranscription?.text?.trim();
+            //
+            // Spanish translation transcript.
+            //
+            if (
+              content.outputTranscription?.text
+            ) {
+              const text =
+                content.outputTranscription.text;
 
-            if (finalText) {
-              setFinalTranscript((current) => {
-                if (!current) {
-                  return finalText;
-                }
-
-                return `${current}\n${finalText}`;
-              });
-
-              setInterim("");
+              setTranslatedText(
+                (current) => current + text
+              );
             }
           },
 
           onerror: (event) => {
-            console.error("Gemini Live error:", event);
+            console.error(
+              "Gemini Live Translate error:",
+              event
+            );
 
             setError(
               event.message ||
-                "Gemini Live connection error"
+                "Gemini Live translation error"
             );
 
             setStatus("ERROR");
@@ -138,7 +173,7 @@ export default function Home() {
 
           onclose: (event) => {
             console.log(
-              "Gemini Live closed:",
+              "Gemini Live Translate closed:",
               event.reason
             );
 
@@ -169,23 +204,28 @@ export default function Home() {
       streamRef.current = stream;
 
       //
-      // 4. Start Web Audio pipeline.
+      // 4. PCM 16 kHz audio pipeline.
       //
-      const audioContext = new AudioContext();
+      const audioContext =
+        new AudioContext();
 
-      audioContextRef.current = audioContext;
+      audioContextRef.current =
+        audioContext;
 
       await audioContext.audioWorklet.addModule(
         "/audio/pcm-processor.js"
       );
 
       const source =
-        audioContext.createMediaStreamSource(stream);
+        audioContext.createMediaStreamSource(
+          stream
+        );
 
-      const worklet = new AudioWorkletNode(
-        audioContext,
-        "pcm-processor"
-      );
+      const worklet =
+        new AudioWorkletNode(
+          audioContext,
+          "pcm-processor"
+        );
 
       workletRef.current = worklet;
 
@@ -206,18 +246,22 @@ export default function Home() {
         sessionRef.current.sendRealtimeInput({
           audio: {
             data: base64,
-            mimeType: "audio/pcm;rate=16000",
+            mimeType:
+              "audio/pcm;rate=16000",
           },
         });
 
-        setChunks((current) => current + 1);
+        setChunks(
+          (current) => current + 1
+        );
+
         setStatus("STREAMING");
       };
 
       source.connect(worklet);
 
       //
-      // Keep AudioWorklet alive without reproducing microphone audio.
+      // Keep worklet processing without microphone feedback.
       //
       const silentGain =
         audioContext.createGain();
@@ -225,39 +269,46 @@ export default function Home() {
       silentGain.gain.value = 0;
 
       worklet.connect(silentGain);
+
       silentGain.connect(
         audioContext.destination
       );
 
-      timerRef.current = setInterval(() => {
-        setSeconds((current) => current + 1);
-      }, 1000);
+      timerRef.current =
+        setInterval(() => {
+          setSeconds(
+            (current) => current + 1
+          );
+        }, 1000);
+
     } catch (err) {
       console.error(err);
 
       setError(
         err instanceof Error
           ? err.message
-          : "Unable to start live transcription"
+          : "Unable to start live translation"
       );
 
       setStatus("ERROR");
     }
   };
 
-  const stopLiveTranscription = async () => {
+  const stopTranslation = async () => {
     try {
       setStatus("FINALIZING");
 
       //
-      // 1. Stop generating new microphone audio.
+      // Stop new microphone audio.
       //
       workletRef.current?.disconnect();
       workletRef.current = null;
 
       streamRef.current
         ?.getTracks()
-        .forEach((track) => track.stop());
+        .forEach((track) =>
+          track.stop()
+        );
 
       streamRef.current = null;
 
@@ -267,12 +318,15 @@ export default function Home() {
       }
 
       if (timerRef.current) {
-        clearInterval(timerRef.current);
+        clearInterval(
+          timerRef.current
+        );
+
         timerRef.current = null;
       }
 
       //
-      // 2. Tell Gemini no more audio is coming.
+      // Tell Gemini that no more audio is coming.
       //
       if (sessionRef.current) {
         sessionRef.current.sendRealtimeInput({
@@ -281,26 +335,24 @@ export default function Home() {
       }
 
       //
-      // 3. Give Gemini time to flush the final transcription.
+      // Allow final translation chunks to arrive.
       //
       await new Promise((resolve) =>
-        setTimeout(resolve, 3000)
+        setTimeout(resolve, 4000)
       );
 
-      //
-      // 4. Close the Live session only after the flush window.
-      //
       sessionRef.current?.close();
       sessionRef.current = null;
 
       setStatus("DISCONNECTED");
+
     } catch (err) {
       console.error(err);
 
       setError(
         err instanceof Error
           ? err.message
-          : "Unable to stop live transcription"
+          : "Unable to stop translation"
       );
 
       setStatus("ERROR");
@@ -315,7 +367,9 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-white">
+
       <div className="mx-auto max-w-6xl px-6 py-12">
+
         <section className="rounded-3xl border border-slate-800 bg-slate-900 p-8 shadow-2xl">
 
           <p className="mb-2 text-sm font-semibold uppercase tracking-[0.25em] text-cyan-400">
@@ -327,7 +381,7 @@ export default function Home() {
           </h1>
 
           <p className="mt-3 text-slate-400">
-            Real-time AI transcription for accessible conferences.
+            Real-time English → Spanish conference translation
           </p>
 
           <div className="mt-8 grid gap-4 md:grid-cols-3">
@@ -352,15 +406,15 @@ export default function Home() {
           <div className="mt-6 flex gap-3">
 
             <button
-              onClick={startLiveTranscription}
+              onClick={startTranslation}
               disabled={isActive}
               className="rounded-xl bg-white px-5 py-3 font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Start live transcription
+              Start EN → ES
             </button>
 
             <button
-              onClick={stopLiveTranscription}
+              onClick={stopTranslation}
               disabled={
                 status !== "STREAMING" &&
                 status !== "CONNECTED"
@@ -374,7 +428,7 @@ export default function Home() {
 
           {status === "FINALIZING" && (
             <div className="mt-5 rounded-xl border border-cyan-900 bg-cyan-950/20 p-4 text-cyan-300">
-              Finalizing transcript...
+              Finalizing translation...
             </div>
           )}
 
@@ -386,28 +440,28 @@ export default function Home() {
 
           <div className="mt-8 grid gap-5 md:grid-cols-2">
 
-            <div className="min-h-56 rounded-2xl border border-cyan-900/50 bg-slate-950 p-6">
+            <div className="min-h-64 rounded-2xl border border-cyan-900/50 bg-slate-950 p-6">
 
               <div className="text-xs font-semibold uppercase tracking-widest text-cyan-400">
-                Interim — Live
+                Original — English
               </div>
 
-              <div className="mt-4 text-xl leading-relaxed text-slate-300">
-                {interim ||
-                  "Waiting for speech..."}
+              <div className="mt-4 whitespace-pre-wrap text-xl leading-relaxed text-slate-200">
+                {originalText ||
+                  "Waiting for English speech..."}
               </div>
 
             </div>
 
-            <div className="min-h-56 rounded-2xl border border-emerald-900/40 bg-slate-950 p-6">
+            <div className="min-h-64 rounded-2xl border border-emerald-900/50 bg-slate-950 p-6">
 
               <div className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
-                Final transcript
+                Spanish — Live Translation
               </div>
 
               <div className="mt-4 whitespace-pre-wrap text-xl leading-relaxed">
-                {finalTranscript ||
-                  "Finalized transcription will appear here."}
+                {translatedText ||
+                  "La traducción aparecerá aquí..."}
               </div>
 
             </div>
@@ -415,11 +469,13 @@ export default function Home() {
           </div>
 
           <div className="mt-8 border-t border-slate-800 pt-6 text-sm text-slate-500">
-            H2 — Gemini Live Transcription · PCM 16 kHz · Ephemeral authentication
+            H3 — Gemini Live Translate · EN → ES · PCM 16 kHz
           </div>
 
         </section>
+
       </div>
+
     </main>
   );
 }
@@ -445,5 +501,3 @@ function Metric({
     </div>
   );
 }
-
-
