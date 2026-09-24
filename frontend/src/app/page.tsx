@@ -35,7 +35,8 @@ import {
 type AppView =
   | "home"
   | "conference"
-  | "conversation";
+  | "conversation"
+  | "operations";
 
 type StageId = "stage-a" | "stage-b";
 
@@ -906,7 +907,7 @@ export default function Home() {
             </p>
           </header>
 
-          <section className="grid gap-6 lg:grid-cols-2">
+          <section className="grid gap-6 lg:grid-cols-3">
             <article className="flex flex-col rounded-3xl border border-slate-800 bg-slate-900 p-7 shadow-xl">
               <div className="text-xs font-semibold uppercase tracking-widest text-cyan-400">
                 Conference Mode
@@ -966,6 +967,36 @@ export default function Home() {
                 Start Conversation
               </button>
             </article>
+
+            <article className="flex flex-col rounded-3xl border border-slate-800 bg-slate-900 p-7 shadow-xl">
+              <div className="text-xs font-semibold uppercase tracking-widest text-violet-400">
+                Operations Mode
+              </div>
+
+              <h2 className="mt-3 text-2xl font-bold">
+                Concurrency Demo
+              </h2>
+
+              <p className="mt-3 text-slate-400">
+                Run two independent live translation sessions simultaneously
+                and verify isolated session processing.
+              </p>
+
+              <div className="mt-6 space-y-2 text-sm text-slate-300">
+                <p>Independent Stage A and Stage B</p>
+                <p>Two simultaneous Gemini Live sessions</p>
+                <p>Independent transcript streams</p>
+                <p>Independent start and stop controls</p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setAppView("operations")}
+                className="mt-8 rounded-xl bg-white px-5 py-3 font-semibold text-slate-950"
+              >
+                Open Concurrency Demo
+              </button>
+            </article>
           </section>
 
           <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">
@@ -989,6 +1020,147 @@ export default function Home() {
               </div>
             </div>
           </section>
+        </div>
+      </main>
+    );
+  }
+
+  if (appView === "operations") {
+    return (
+      <main className="min-h-screen bg-slate-950 text-white">
+        <div className="mx-auto max-w-7xl px-6 py-10">
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+            <button
+              type="button"
+              onClick={async () => {
+                if (anyActive) {
+                  await stopBoth();
+                }
+
+                setAppView("home");
+              }}
+              className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold"
+            >
+              Back to Mode Selection
+            </button>
+
+            <div className="rounded-full border border-violet-700 px-4 py-2 text-xs font-semibold uppercase tracking-widest text-violet-400">
+              Operations Mode
+            </div>
+          </div>
+
+          <header className="mb-8">
+            <p className="text-sm font-semibold uppercase tracking-[0.25em] text-violet-400">
+              Nerdearla Vibeathon 2026
+            </p>
+
+            <h1 className="mt-2 text-4xl font-bold">
+              Concurrent Live Sessions
+            </h1>
+
+            <p className="mt-3 max-w-3xl text-slate-400">
+              Operational demonstration of two independent live translation
+              sessions running simultaneously.
+            </p>
+          </header>
+
+          <section className="mb-6 rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-xl">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-widest text-violet-400">
+                  Concurrency Control
+                </div>
+
+                <h2 className="mt-2 text-2xl font-bold">
+                  Two-Session Operations
+                </h2>
+
+                <p className="mt-2 max-w-3xl text-sm text-slate-400">
+                  Each stage owns an independent Gemini Live session,
+                  microphone pipeline, status, timer, and transcript stream.
+                </p>
+              </div>
+
+              <div
+                className={
+                  "rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-widest " +
+                  (bothStreaming
+                    ? "border-emerald-700 text-emerald-400"
+                    : anyActive
+                      ? "border-amber-700 text-amber-400"
+                      : "border-slate-700 text-slate-400")
+                }
+              >
+                {bothStreaming
+                  ? "2 Sessions Streaming"
+                  : anyActive
+                    ? "Partial Activity"
+                    : "Idle"}
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  void startBoth();
+                }}
+                disabled={anyActive}
+                className="rounded-xl bg-white px-5 py-3 font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Start Both
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  void stopBoth();
+                }}
+                disabled={!anyActive}
+                className="rounded-xl border border-slate-700 px-5 py-3 font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Stop Both
+              </button>
+            </div>
+          </section>
+
+          <section className="grid gap-6 xl:grid-cols-2">
+            <StagePanel
+              stage={stageA}
+              onStart={() => {
+                void startStage("stage-a");
+              }}
+              onStop={() => {
+                void stopStage("stage-a");
+              }}
+            />
+
+            <StagePanel
+              stage={stageB}
+              onStart={() => {
+                void startStage("stage-b");
+              }}
+              onStop={() => {
+                void stopStage("stage-b");
+              }}
+            />
+          </section>
+
+          <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">
+            <div className="text-xs font-semibold uppercase tracking-widest text-violet-400">
+              Scalability Evidence
+            </div>
+
+            <p className="mt-2 text-sm leading-6 text-slate-300">
+              Stage A and Stage B are isolated client sessions. The same
+              session-worker pattern can be replicated horizontally so
+              additional conference streams do not share transcript state.
+            </p>
+          </section>
+
+          <footer className="mt-6 text-sm text-slate-500">
+            H5 - Concurrent session operations - Gemini Live - PCM 16 kHz
+          </footer>
         </div>
       </main>
     );
