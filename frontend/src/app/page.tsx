@@ -109,6 +109,53 @@ export default function Home() {
     conferenceActive,
     setConferenceActive,
   ] = useState(false);
+  const [
+    conversationSession,
+    setConversationSession,
+  ] = useState<TranscriptSession | null>(
+    null
+  );
+
+  const [
+    conversationSpeaker,
+    setConversationSpeaker,
+  ] = useState<"A" | "B">("A");
+
+  const [
+    conversationStatus,
+    setConversationStatus,
+  ] = useState<LiveSessionStatus>(
+    "DISCONNECTED"
+  );
+
+  const [
+    conversationError,
+    setConversationError,
+  ] = useState("");
+
+  const [
+    conversationActive,
+    setConversationActive,
+  ] = useState(false);
+
+  const [
+    activeConversationSegmentId,
+    setActiveConversationSegmentId,
+  ] = useState<string | null>(null);
+
+  const conversationSessionRef =
+    useRef<TranscriptSession | null>(
+      null
+    );
+
+  const conversationLiveRef =
+    useRef<LiveTranslationSession | null>(
+      null
+    );
+
+  const conversationSegmentIdRef =
+    useRef<string | null>(null);
+
   const [stageA, setStageA] = useState<StageState>(
     initialStage("stage-a", "Stage A")
   );
@@ -483,6 +530,285 @@ export default function Home() {
             : current
       );
 
+    };
+
+  const startConversationTurn =
+    async (
+      speaker:
+        "A" | "B" = conversationSpeaker
+    ) => {
+      if (conversationLiveRef.current) {
+        return;
+      }
+
+      const sourceLanguage:
+        LanguageCode =
+          speaker === "A"
+            ? "en"
+            : "es";
+
+      const targetLanguage:
+        LanguageCode =
+          sourceLanguage === "en"
+            ? "es"
+            : "en";
+
+      let baseSession =
+        conversationSessionRef.current;
+
+      if (!baseSession) {
+        baseSession =
+          createTranscriptSession(
+            "conversation",
+            "Bilingual Conversation"
+          );
+      }
+
+      if (baseSession.endedAt) {
+        return;
+      }
+
+      const segment =
+        createTranscriptSegment(
+          `Speaker ${speaker}`,
+          sourceLanguage,
+          targetLanguage
+        );
+
+      const nextSession =
+        addSegmentToSession(
+          baseSession,
+          segment
+        );
+
+      conversationSessionRef.current =
+        nextSession;
+
+      setConversationSession(
+        nextSession
+      );
+
+      conversationSegmentIdRef.current =
+        segment.id;
+
+      setActiveConversationSegmentId(
+        segment.id
+      );
+
+      setConversationSpeaker(
+        speaker
+      );
+
+      setConversationError("");
+
+      const live =
+        new LiveTranslationSession(
+          {
+            onStatus: (status) => {
+              setConversationStatus(
+                status
+              );
+            },
+
+            onOriginalText: (text) => {
+              const normalized =
+                applyTechnicalGlossary(
+                  text
+                );
+
+              setConversationSession(
+                (current) => {
+                  if (!current) {
+                    return current;
+                  }
+
+                  const next =
+                    updateSegmentInSession(
+                      current,
+                      segment.id,
+                      (currentSegment) =>
+                        appendOriginalText(
+                          currentSegment,
+                          normalized
+                        )
+                    );
+
+                  conversationSessionRef.current =
+                    next;
+
+                  return next;
+                }
+              );
+            },
+
+            onTranslatedText: (
+              text
+            ) => {
+              const normalized =
+                applyTechnicalGlossary(
+                  text
+                );
+
+              setConversationSession(
+                (current) => {
+                  if (!current) {
+                    return current;
+                  }
+
+                  const next =
+                    updateSegmentInSession(
+                      current,
+                      segment.id,
+                      (currentSegment) =>
+                        appendTranslatedText(
+                          currentSegment,
+                          normalized
+                        )
+                    );
+
+                  conversationSessionRef.current =
+                    next;
+
+                  return next;
+                }
+              );
+            },
+
+            onChunk: () => {},
+
+            onError: (message) => {
+              setConversationError(
+                message
+              );
+            },
+          },
+          {
+            sourceLanguage,
+            targetLanguage,
+          }
+        );
+
+      conversationLiveRef.current =
+        live;
+
+      setConversationActive(true);
+
+      try {
+        await live.start();
+      }
+      catch {
+        conversationLiveRef.current =
+          null;
+
+        conversationSegmentIdRef.current =
+          null;
+
+        setActiveConversationSegmentId(
+          null
+        );
+
+        setConversationActive(false);
+      }
+    };
+
+  const pauseConversationTurn =
+    async () => {
+      const live =
+        conversationLiveRef.current;
+
+      if (!live) {
+        return;
+      }
+
+      const segmentId =
+        conversationSegmentIdRef.current;
+
+      conversationLiveRef.current =
+        null;
+
+      setConversationActive(false);
+
+      await live.stop();
+
+      if (segmentId) {
+        const currentSession =
+          conversationSessionRef.current;
+
+        if (currentSession) {
+          const closedSession =
+            updateSegmentInSession(
+              currentSession,
+              segmentId,
+              closeTranscriptSegment
+            );
+
+          conversationSessionRef.current =
+            closedSession;
+
+          setConversationSession(
+            closedSession
+          );
+        }
+
+        setActiveConversationSegmentId(
+          segmentId
+        );
+      }
+
+      conversationSegmentIdRef.current =
+        null;
+
+      setConversationStatus(
+        "DISCONNECTED"
+      );
+    };
+
+  const switchConversationTurn =
+    async () => {
+      const currentSpeaker =
+        conversationSpeaker;
+
+      if (conversationLiveRef.current) {
+        await pauseConversationTurn();
+      }
+
+      const nextSpeaker:
+        "A" | "B" =
+          currentSpeaker === "A"
+            ? "B"
+            : "A";
+
+      setConversationSpeaker(
+        nextSpeaker
+      );
+
+      await startConversationTurn(
+        nextSpeaker
+      );
+    };
+
+  const endConversation =
+    async () => {
+      if (conversationLiveRef.current) {
+        await pauseConversationTurn();
+      }
+
+      const currentSession =
+        conversationSessionRef.current;
+
+      if (currentSession) {
+        const closedSession =
+          closeTranscriptSession(
+            currentSession
+          );
+
+        conversationSessionRef.current =
+          closedSession;
+
+        setConversationSession(
+          closedSession
+        );
+      }
     };
 
   const startBoth = async () => {
@@ -986,47 +1312,47 @@ export default function Home() {
     );
   }
 
+  const activeConversationSegment =
+    conversationSession?.segments.find(
+      (segment) =>
+        segment.id ===
+        activeConversationSegmentId
+    );
+
+  const conversationEnded =
+    conversationSession?.endedAt != null;
+
+  const conversationSourceLanguage:
+    LanguageCode =
+      conversationSpeaker === "A"
+        ? "en"
+        : "es";
+
+  const conversationTargetLanguage:
+    LanguageCode =
+      conversationSourceLanguage === "en"
+        ? "es"
+        : "en";
+
   return (
     <main className="min-h-screen bg-slate-950 text-white">
-      <div className="mx-auto max-w-7xl px-6 py-10">
-
+      <div className="mx-auto max-w-6xl px-6 py-10">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-
-
           <button
-
-
             type="button"
-
-
-            onClick={() => setAppView("home")}
-
-
-            className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold"
-
-
+            onClick={() =>
+              setAppView("home")
+            }
+            disabled={conversationActive}
+            className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40"
           >
-
-
             Back to Mode Selection
-
-
           </button>
 
-
-
-          <div className="rounded-full border border-slate-700 px-4 py-2 text-xs font-semibold uppercase tracking-widest text-cyan-400">
-
-
+          <div className="rounded-full border border-slate-700 px-4 py-2 text-xs font-semibold uppercase tracking-widest text-emerald-400">
             Conversation Mode
-
-
           </div>
-
-
         </div>
-
-
 
         <header className="mb-8">
           <p className="text-sm font-semibold uppercase tracking-[0.25em] text-cyan-400">
@@ -1034,112 +1360,297 @@ export default function Home() {
           </p>
 
           <h1 className="mt-2 text-4xl font-bold">
-            Nerdearla Live Access
+            Bilingual Conversation
           </h1>
 
           <p className="mt-3 text-slate-400">
-            Concurrent real-time conference translation
+            Persistent turn-by-turn English and Spanish conversation.
           </p>
         </header>
 
-        <section className="mb-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-
-            <div>
-              <div className="text-sm text-slate-400">
-                Multi-session status
+        <section className="rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-xl">
+          <div className="grid gap-5 md:grid-cols-2">
+            <div
+              className={
+                conversationSpeaker === "A"
+                  ? "rounded-2xl border border-cyan-500 bg-slate-950 p-5"
+                  : "rounded-2xl border border-slate-800 bg-slate-950 p-5"
+              }
+            >
+              <div className="text-xs font-semibold uppercase tracking-widest text-cyan-400">
+                Speaker A
               </div>
 
-              <div className="mt-1 text-xl font-semibold">
-                {bothStreaming
-                  ? "2 LIVE SESSIONS"
-                  : anyActive
-                    ? "SESSION STARTING / ACTIVE"
-                    : "READY"}
+              <div className="mt-2 text-xl font-bold">
+                English
               </div>
+
+              <div className="mt-1 text-sm text-slate-400">
+                Translated live to Spanish
+              </div>
+
+              {conversationSpeaker === "A" &&
+                !conversationEnded && (
+                  <div className="mt-4 inline-flex rounded-full border border-cyan-700 px-3 py-1 text-xs font-semibold text-cyan-300">
+                    CURRENT TURN
+                  </div>
+                )}
             </div>
 
-            <div className="flex gap-3">
-              <button
-                onClick={startBoth}
-                disabled={anyActive}
-                className="rounded-xl bg-white px-5 py-3 font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Start Both Sessions
-              </button>
+            <div
+              className={
+                conversationSpeaker === "B"
+                  ? "rounded-2xl border border-emerald-500 bg-slate-950 p-5"
+                  : "rounded-2xl border border-slate-800 bg-slate-950 p-5"
+              }
+            >
+              <div className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
+                Speaker B
+              </div>
 
-              <button
-                onClick={stopBoth}
-                disabled={!anyActive}
-                className="rounded-xl border border-slate-700 px-5 py-3 font-semibold disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Stop Both
-              </button>
+              <div className="mt-2 text-xl font-bold">
+                Spanish
+              </div>
+
+              <div className="mt-1 text-sm text-slate-400">
+                Translated live to English
+              </div>
+
+              {conversationSpeaker === "B" &&
+                !conversationEnded && (
+                  <div className="mt-4 inline-flex rounded-full border border-emerald-700 px-3 py-1 text-xs font-semibold text-emerald-300">
+                    CURRENT TURN
+                  </div>
+                )}
+            </div>
+          </div>
+
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() =>
+                startConversationTurn()
+              }
+              disabled={
+                conversationActive ||
+                conversationEnded
+              }
+              className="rounded-xl bg-white px-5 py-3 font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {conversationEnded
+                ? "Conversation Ended"
+                : conversationSession
+                  ? `Resume Speaker ${conversationSpeaker}`
+                  : `Start Speaker ${conversationSpeaker}`}
+            </button>
+
+            <button
+              type="button"
+              onClick={
+                pauseConversationTurn
+              }
+              disabled={
+                !conversationActive
+              }
+              className="rounded-xl border border-slate-700 px-5 py-3 font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Pause Turn
+            </button>
+
+            <button
+              type="button"
+              onClick={
+                switchConversationTurn
+              }
+              disabled={
+                conversationEnded
+              }
+              className="rounded-xl border border-cyan-800 px-5 py-3 font-semibold text-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Switch to Speaker {conversationSpeaker === "A" ? "B" : "A"}
+            </button>
+
+            <button
+              type="button"
+              onClick={endConversation}
+              disabled={
+                !conversationSession ||
+                conversationEnded
+              }
+              className="rounded-xl border border-red-900 px-5 py-3 font-semibold text-red-300 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              End Conversation
+            </button>
+
+            <div className="ml-auto rounded-full border border-slate-700 px-3 py-2 text-xs font-semibold">
+              {conversationEnded
+                ? "ENDED"
+                : conversationStatus}
+            </div>
+          </div>
+
+          <div className="mt-4 text-sm text-slate-400">
+            Current direction:{" "}
+            <span className="font-semibold text-white">
+              {conversationSourceLanguage.toUpperCase()}
+              {" -> "}
+              {conversationTargetLanguage.toUpperCase()}
+            </span>
+          </div>
+
+          {conversationError && (
+            <div className="mt-4 rounded-xl border border-red-900 bg-red-950/40 p-3 text-sm text-red-300">
+              {conversationError}
+            </div>
+          )}
+        </section>
+
+        <section className="mt-6 grid gap-5 md:grid-cols-2">
+          <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
+            <div className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
+              Original - {activeConversationSegment
+                ? activeConversationSegment.sourceLanguage === "en"
+                  ? "English"
+                  : "Spanish"
+                : conversationSourceLanguage === "en"
+                  ? "English"
+                  : "Spanish"}
             </div>
 
+            <div className="mt-4 min-h-24 text-lg font-semibold leading-7">
+              {activeConversationSegment?.originalText ||
+                "Original speech will appear here..."}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5">
+            <div className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
+              Translation - {activeConversationSegment
+                ? activeConversationSegment.targetLanguage === "en"
+                  ? "English"
+                  : "Spanish"
+                : conversationTargetLanguage === "en"
+                  ? "English"
+                  : "Spanish"}
+            </div>
+
+            <div className="mt-4 min-h-24 text-lg font-semibold leading-7">
+              {activeConversationSegment?.translatedText ||
+                "Live translation will appear here..."}
+            </div>
           </div>
         </section>
 
-        <div className="grid gap-6 xl:grid-cols-2">
-
-          <StagePanel
-            stage={stageA}
-            onStart={() =>
-              startStage("stage-a")
-            }
-            onStop={() =>
-              stopStage("stage-a")
-            }
-          />
-
-          <StagePanel
-            stage={stageB}
-            onStart={() =>
-              startStage("stage-b")
-            }
-            onStop={() =>
-              stopStage("stage-b")
-            }
-          />
-
-        </div>
-
-        <section className="mt-8 rounded-2xl border border-slate-800 bg-slate-900 p-5">
-          <div className="flex flex-wrap items-center justify-between gap-4">
+        <section className="mt-8 rounded-3xl border border-slate-800 bg-slate-900 p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
-                Technical Glossary
+                Conversation Memory
               </div>
 
-              <div className="mt-1 text-lg font-semibold">
-                ACTIVE - {TECHNICAL_GLOSSARY.length} canonical terms
-              </div>
+              <h2 className="mt-1 text-2xl font-bold">
+                Complete Conversation
+              </h2>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              {TECHNICAL_GLOSSARY.map((entry) => (
+            <div className="text-sm text-slate-400">
+              {conversationSession
+                ?.segments.length ?? 0}{" "}
+              turn(s)
+            </div>
+          </div>
+
+          <div className="mt-6 space-y-4">
+            {!conversationSession ||
+            conversationSession.segments.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-slate-700 p-6 text-slate-500">
+                No conversation turns yet.
+              </div>
+            ) : (
+              conversationSession.segments.map(
+                (segment, index) => (
+                  <article
+                    key={segment.id}
+                    className="rounded-2xl border border-slate-800 bg-slate-950 p-5"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="text-xs font-semibold uppercase tracking-widest text-cyan-400">
+                          Turn {index + 1}
+                        </div>
+
+                        <div className="mt-1 font-semibold">
+                          {segment.speaker}
+                        </div>
+                      </div>
+
+                      <div className="text-xs uppercase text-slate-500">
+                        {segment.sourceLanguage}
+                        {" -> "}
+                        {segment.targetLanguage}
+                        {" - "}
+                        {segment.endedAt
+                          ? "CLOSED"
+                          : "LIVE"}
+                      </div>
+                    </div>
+
+                    <div className="mt-5 grid gap-5 md:grid-cols-2">
+                      <div>
+                        <div className="text-xs uppercase tracking-widest text-slate-500">
+                          Original
+                        </div>
+
+                        <div className="mt-2 leading-7 text-slate-200">
+                          {segment.originalText ||
+                            "..."}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-xs uppercase tracking-widest text-slate-500">
+                          Translation
+                        </div>
+
+                        <div className="mt-2 leading-7 text-slate-200">
+                          {segment.translatedText ||
+                            "..."}
+                        </div>
+                      </div>
+                    </div>
+                  </article>
+                )
+              )
+            )}
+          </div>
+        </section>
+
+        <section className="mt-8 rounded-2xl border border-slate-800 bg-slate-900 p-5">
+          <div className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
+            Technical Glossary
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {TECHNICAL_GLOSSARY.map(
+              (entry) => (
                 <span
                   key={entry.canonical}
                   className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs text-slate-300"
                 >
                   {entry.canonical}
                 </span>
-              ))}
-            </div>
+              )
+            )}
           </div>
-
-          <p className="mt-3 text-sm text-slate-500">
-            Deterministic terminology normalization for conference-specific vocabulary.
-          </p>
         </section>
 
         <footer className="mt-6 text-sm text-slate-500">
-          H5 - Concurrent Gemini Live sessions - EN to ES - PCM 16 kHz
+          H5 - Persistent bilingual conversation - Gemini Live - PCM 16 kHz
         </footer>
-
       </div>
     </main>
   );
+
 }
 
 function StagePanel({
