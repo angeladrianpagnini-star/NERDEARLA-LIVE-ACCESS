@@ -12,6 +12,14 @@ import {
 } from "@/lib/technical-glossary";
 
 import {
+  exportSession,
+  sessionExportFilename,
+  sessionExportMimeType,
+  type ExportContent,
+  type ExportFormat,
+} from "@/lib/session-export";
+
+import {
   addSegmentToSession,
   appendOriginalText,
   appendTranslatedText,
@@ -1283,6 +1291,11 @@ export default function Home() {
             </div>
           </section>
 
+          <ExportPanel
+            session={conferenceSession}
+            label="Conference Export"
+          />
+
           <section className="mt-8 rounded-2xl border border-slate-800 bg-slate-900 p-5">
             <div className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
               Technical Glossary
@@ -1625,6 +1638,11 @@ export default function Home() {
           </div>
         </section>
 
+        <ExportPanel
+          session={conversationSession}
+          label="Conversation Export"
+        />
+
         <section className="mt-8 rounded-2xl border border-slate-800 bg-slate-900 p-5">
           <div className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
             Technical Glossary
@@ -1651,6 +1669,193 @@ export default function Home() {
     </main>
   );
 
+}
+
+function ExportPanel({
+  session,
+  label,
+}: {
+  session: TranscriptSession | null;
+  label: string;
+}) {
+  const [format, setFormat] =
+    useState<ExportFormat>("txt");
+
+  const [content, setContent] =
+    useState<ExportContent>("bilingual");
+
+  const hasSegments =
+    Boolean(
+      session &&
+      session.segments.length > 0
+    );
+
+  const downloadExport = () => {
+    if (
+      !session ||
+      session.segments.length === 0
+    ) {
+      return;
+    }
+
+    const exported =
+      exportSession(
+        session,
+        {
+          format,
+          content,
+        }
+      );
+
+    const blob =
+      new Blob(
+        [exported],
+        {
+          type:
+            sessionExportMimeType(
+              format
+            ),
+        }
+      );
+
+    const objectUrl =
+      URL.createObjectURL(blob);
+
+    const anchor =
+      document.createElement("a");
+
+    anchor.href =
+      objectUrl;
+
+    anchor.download =
+      sessionExportFilename(
+        session,
+        format
+      );
+
+    document.body.appendChild(
+      anchor
+    );
+
+    anchor.click();
+    anchor.remove();
+
+    URL.revokeObjectURL(
+      objectUrl
+    );
+  };
+
+  return (
+    <section className="mt-8 rounded-3xl border border-slate-800 bg-slate-900 p-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-widest text-cyan-400">
+            Export
+          </div>
+
+          <h2 className="mt-1 text-2xl font-bold">
+            {label}
+          </h2>
+
+          <p className="mt-2 text-sm text-slate-400">
+            Download the complete session as
+            transcript or subtitle-ready data.
+          </p>
+        </div>
+
+        <div className="rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold text-slate-300">
+          {session?.segments.length ?? 0} segment(s)
+        </div>
+      </div>
+
+      <div className="mt-6 grid gap-5 md:grid-cols-3">
+        <label className="block">
+          <span className="text-xs font-semibold uppercase tracking-widest text-slate-500">
+            Format
+          </span>
+
+          <select
+            value={format}
+            onChange={(event) =>
+              setFormat(
+                event.target.value as ExportFormat
+              )
+            }
+            className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white"
+          >
+            <option value="txt">
+              TXT
+            </option>
+            <option value="srt">
+              SRT
+            </option>
+            <option value="vtt">
+              VTT
+            </option>
+          </select>
+        </label>
+
+        <label className="block">
+          <span className="text-xs font-semibold uppercase tracking-widest text-slate-500">
+            Content
+          </span>
+
+          <select
+            value={content}
+            onChange={(event) =>
+              setContent(
+                event.target.value as ExportContent
+              )
+            }
+            className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white"
+          >
+            <option value="original">
+              Original
+            </option>
+            <option value="translation">
+              Translation
+            </option>
+            <option value="bilingual">
+              Bilingual
+            </option>
+          </select>
+        </label>
+
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-widest text-slate-500">
+            Scope
+          </div>
+
+          <div className="mt-2 rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-300">
+            Complete Session
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-6 flex flex-wrap items-center gap-4">
+        <button
+          type="button"
+          onClick={downloadExport}
+          disabled={!hasSegments}
+          className="rounded-xl bg-white px-5 py-3 font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Download Export
+        </button>
+
+        {!hasSegments && (
+          <span className="text-sm text-slate-500">
+            Start a session to enable export.
+          </span>
+        )}
+
+        {hasSegments && (
+          <span className="text-sm text-slate-500">
+            {format.toUpperCase()} - {content}
+          </span>
+        )}
+      </div>
+    </section>
+  );
 }
 
 function StagePanel({
