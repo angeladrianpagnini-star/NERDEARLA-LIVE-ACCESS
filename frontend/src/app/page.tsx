@@ -523,6 +523,15 @@ export default function Home() {
       );
     };
 
+  const backFromConference =
+    async () => {
+      if (conferenceLiveRef.current) {
+        await pauseConferenceCapture();
+      }
+
+      setAppView("home");
+    };
+
   const endConference =
     async () => {
       if (conferenceLiveRef.current) {
@@ -538,6 +547,15 @@ export default function Home() {
             : current
       );
 
+    };
+
+  const backFromConversation =
+    async () => {
+      if (conversationLiveRef.current) {
+        await pauseConversationTurn();
+      }
+
+      setAppView("home");
     };
 
   const startConversationTurn =
@@ -993,8 +1011,8 @@ export default function Home() {
           <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
             <button
               type="button"
-              onClick={() =>
-                setAppView("home")
+              onClick={
+                backFromConference
               }
               className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold"
             >
@@ -1353,11 +1371,10 @@ export default function Home() {
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
           <button
             type="button"
-            onClick={() =>
-              setAppView("home")
+            onClick={
+              backFromConversation
             }
-            disabled={conversationActive}
-            className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold"
           >
             Back to Mode Selection
           </button>
