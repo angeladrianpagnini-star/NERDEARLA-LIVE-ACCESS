@@ -1,17 +1,97 @@
-﻿import { GoogleGenAI, Modality } from "@google/genai";
-import { NextResponse } from "next/server";
+import { GoogleGenAI, Modality } from "@google/genai";
+import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-export async function POST() {
+type LanguageCode = "en" | "es";
+
+type TranslationDirection = {
+  sourceLanguage: LanguageCode;
+  targetLanguage: LanguageCode;
+};
+
+function parseDirection(
+  sourceLanguage: unknown,
+  targetLanguage: unknown
+): TranslationDirection | null {
+  if (
+    sourceLanguage === "en" &&
+    targetLanguage === "es"
+  ) {
+    return {
+      sourceLanguage: "en",
+      targetLanguage: "es",
+    };
+  }
+
+  if (
+    sourceLanguage === "es" &&
+    targetLanguage === "en"
+  ) {
+    return {
+      sourceLanguage: "es",
+      targetLanguage: "en",
+    };
+  }
+
+  return null;
+}
+
+export async function POST(
+  request: NextRequest
+) {
   try {
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey =
+      process.env.GEMINI_API_KEY;
 
     if (!apiKey) {
       return NextResponse.json(
-        { error: "GEMINI_API_KEY is not configured" },
+        {
+          error:
+            "GEMINI_API_KEY is not configured",
+        },
         { status: 500 }
       );
+    }
+
+    let direction: TranslationDirection = {
+      sourceLanguage: "en",
+      targetLanguage: "es",
+    };
+
+    try {
+      const body =
+        (await request.json()) as {
+          sourceLanguage?: unknown;
+          targetLanguage?: unknown;
+        };
+
+      const hasDirection =
+        body.sourceLanguage !== undefined ||
+        body.targetLanguage !== undefined;
+
+      if (hasDirection) {
+        const parsedDirection =
+          parseDirection(
+            body.sourceLanguage,
+            body.targetLanguage
+          );
+
+        if (!parsedDirection) {
+          return NextResponse.json(
+            {
+              error:
+                "Unsupported translation direction",
+            },
+            { status: 400 }
+          );
+        }
+
+        direction = parsedDirection;
+      }
+    } catch {
+      // Empty body preserves the existing
+      // EN -> ES behavior.
     }
 
     const client = new GoogleGenAI({
@@ -28,31 +108,34 @@ export async function POST() {
     const model =
       "gemini-3.5-live-translate-preview";
 
-    const token = await client.authTokens.create({
-      config: {
-        uses: 1,
-        expireTime,
+    const token =
+      await client.authTokens.create({
+        config: {
+          uses: 1,
+          expireTime,
 
-        liveConnectConstraints: {
-          model,
+          liveConnectConstraints: {
+            model,
 
-          config: {
-            responseModalities: [
-              Modality.AUDIO,
-            ],
+            config: {
+              responseModalities: [
+                Modality.AUDIO,
+              ],
 
-            inputAudioTranscription: {},
+              inputAudioTranscription: {},
 
-            outputAudioTranscription: {},
+              outputAudioTranscription: {},
 
-            translationConfig: {
-              targetLanguageCode: "es",
-              echoTargetLanguage: true,
+              translationConfig: {
+                targetLanguageCode:
+                  direction.targetLanguage,
+
+                echoTargetLanguage: true,
+              },
             },
           },
         },
-      },
-    });
+      });
 
     if (!token.name) {
       throw new Error(
@@ -63,8 +146,10 @@ export async function POST() {
     return NextResponse.json({
       token: token.name,
       model,
-      sourceLanguage: "en",
-      targetLanguage: "es",
+      sourceLanguage:
+        direction.sourceLanguage,
+      targetLanguage:
+        direction.targetLanguage,
     });
   } catch (error) {
     console.error(
