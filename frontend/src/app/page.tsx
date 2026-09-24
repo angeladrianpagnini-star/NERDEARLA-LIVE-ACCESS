@@ -6,6 +6,11 @@ import {
   LiveSessionStatus,
 } from "@/lib/live-translation-session";
 
+import {
+  applyTechnicalGlossary,
+  TECHNICAL_GLOSSARY,
+} from "@/lib/technical-glossary";
+
 type StageId = "stage-a" | "stage-b";
 
 type StageState = {
@@ -105,7 +110,7 @@ export default function Home() {
           setStage((current) => ({
             ...current,
             original:
-              current.original + text,
+              current.original + applyTechnicalGlossary(text),
           }));
         },
 
@@ -113,7 +118,7 @@ export default function Home() {
           setStage((current) => ({
             ...current,
             translated:
-              current.translated + text,
+              current.translated + applyTechnicalGlossary(text),
           }));
         },
 
@@ -308,8 +313,37 @@ export default function Home() {
 
         </div>
 
-        <footer className="mt-8 text-sm text-slate-500">
-          H4 — Independent Gemini Live sessions · EN → ES · PCM 16 kHz
+        <section className="mt-8 rounded-2xl border border-slate-800 bg-slate-900 p-5">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
+                Technical Glossary
+              </div>
+
+              <div className="mt-1 text-lg font-semibold">
+                ACTIVE - {TECHNICAL_GLOSSARY.length} canonical terms
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {TECHNICAL_GLOSSARY.map((entry) => (
+                <span
+                  key={entry.canonical}
+                  className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs text-slate-300"
+                >
+                  {entry.canonical}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <p className="mt-3 text-sm text-slate-500">
+            Deterministic terminology normalization for conference-specific vocabulary.
+          </p>
+        </section>
+
+        <footer className="mt-6 text-sm text-slate-500">
+          H5 - Concurrent Gemini Live sessions - EN to ES - PCM 16 kHz
         </footer>
 
       </div>
@@ -393,15 +427,15 @@ function StagePanel({
       <div className="mt-6 space-y-4">
 
         <TranscriptBox
-          title="Original — English"
+          title="Original - English"
           text={stage.original}
           placeholder="Waiting for English speech..."
         />
 
         <TranscriptBox
-          title="Spanish — Live Translation"
+          title="Spanish - Live Translation"
           text={stage.translated}
-          placeholder="La traducción aparecerá aquí..."
+          placeholder="Spanish translation will appear here..."
         />
 
       </div>
