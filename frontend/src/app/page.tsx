@@ -11,6 +11,19 @@ import {
   TECHNICAL_GLOSSARY,
 } from "@/lib/technical-glossary";
 
+import {
+  addSegmentToSession,
+  appendOriginalText,
+  appendTranslatedText,
+  closeTranscriptSegment,
+  closeTranscriptSession,
+  createTranscriptSegment,
+  createTranscriptSession,
+  updateSegmentInSession,
+  type LanguageCode,
+  type TranscriptSession,
+} from "@/lib/session-memory";
+
 type AppView =
   | "home"
   | "conference"
@@ -48,6 +61,54 @@ function initialStage(
 export default function Home() {
   const [appView, setAppView] =
     useState<AppView>("home");
+
+  const [conferenceTitle, setConferenceTitle] =
+    useState("Nerdearla Live Conference");
+
+  const [conferenceSpeaker, setConferenceSpeaker] =
+    useState("Speaker 1");
+
+  const [
+    conferenceSourceLanguage,
+    setConferenceSourceLanguage,
+  ] = useState<LanguageCode>("en");
+
+  const [
+    conferenceSession,
+    setConferenceSession,
+  ] = useState<TranscriptSession | null>(
+    null
+  );
+
+  const [
+    conferenceStatus,
+    setConferenceStatus,
+  ] = useState<LiveSessionStatus>(
+    "DISCONNECTED"
+  );
+
+  const [
+    conferenceError,
+    setConferenceError,
+  ] = useState("");
+
+  const conferenceLiveRef =
+    useRef<LiveTranslationSession | null>(
+      null
+    );
+
+  const conferenceSegmentIdRef =
+    useRef<string | null>(null);
+
+  const [
+    activeConferenceSegmentId,
+    setActiveConferenceSegmentId,
+  ] = useState<string | null>(null);
+
+  const [
+    conferenceActive,
+    setConferenceActive,
+  ] = useState(false);
   const [stageA, setStageA] = useState<StageState>(
     initialStage("stage-a", "Stage A")
   );
@@ -188,6 +249,241 @@ export default function Home() {
 
     sessionRef.current = null;
   };
+
+  const startConferenceCapture =
+    async () => {
+      if (conferenceLiveRef.current) {
+        return;
+      }
+
+      setConferenceError("");
+
+      const targetLanguage:
+        LanguageCode =
+          conferenceSourceLanguage === "en"
+            ? "es"
+            : "en";
+
+      let baseSession =
+        conferenceSession;
+
+      if (!baseSession) {
+        baseSession =
+          createTranscriptSession(
+            "conference",
+            conferenceTitle.trim() ||
+              "Live Conference"
+          );
+      }
+
+      const segment =
+        createTranscriptSegment(
+          conferenceSpeaker.trim() ||
+            "Speaker",
+          conferenceSourceLanguage,
+          targetLanguage
+        );
+
+      conferenceSegmentIdRef.current =
+        segment.id;
+
+      setActiveConferenceSegmentId(
+        segment.id
+      );
+
+      const sessionWithSegment =
+        addSegmentToSession(
+          baseSession,
+          segment
+        );
+
+      setConferenceSession(
+        sessionWithSegment
+      );
+
+      const live =
+        new LiveTranslationSession(
+          {
+            onStatus: (status) => {
+              setConferenceStatus(
+                status
+              );
+            },
+
+            onOriginalText: (text) => {
+              const normalized =
+                applyTechnicalGlossary(
+                  text
+                );
+
+              const segmentId =
+                conferenceSegmentIdRef
+                  .current;
+
+              if (!segmentId) {
+                return;
+              }
+
+              setConferenceSession(
+                (current) => {
+                  if (!current) {
+                    return current;
+                  }
+
+                  return updateSegmentInSession(
+                    current,
+                    segmentId,
+                    (currentSegment) =>
+                      appendOriginalText(
+                        currentSegment,
+                        normalized
+                      )
+                  );
+                }
+              );
+            },
+
+            onTranslatedText: (text) => {
+              const normalized =
+                applyTechnicalGlossary(
+                  text
+                );
+
+              const segmentId =
+                conferenceSegmentIdRef
+                  .current;
+
+              if (!segmentId) {
+                return;
+              }
+
+              setConferenceSession(
+                (current) => {
+                  if (!current) {
+                    return current;
+                  }
+
+                  return updateSegmentInSession(
+                    current,
+                    segmentId,
+                    (currentSegment) =>
+                      appendTranslatedText(
+                        currentSegment,
+                        normalized
+                      )
+                  );
+                }
+              );
+            },
+
+            onError: (message) => {
+              setConferenceError(
+                message
+              );
+            },
+          },
+          {
+            sourceLanguage:
+              conferenceSourceLanguage,
+            targetLanguage,
+          }
+        );
+
+      conferenceLiveRef.current =
+        live;
+
+      setConferenceActive(true);
+
+      try {
+        await live.start();
+      } catch {
+        conferenceLiveRef.current =
+          null;
+
+        conferenceSegmentIdRef.current =
+          null;
+
+        setActiveConferenceSegmentId(
+          null
+        );
+
+        setConferenceActive(false);
+      }
+    };
+
+  const pauseConferenceCapture =
+    async () => {
+      const live =
+        conferenceLiveRef.current;
+
+      if (!live) {
+        return;
+      }
+
+      const segmentId =
+        conferenceSegmentIdRef.current;
+
+      /*
+       * Detach the live engine immediately
+       * so a second pause/start cannot race
+       * against this shutdown.
+       */
+      conferenceLiveRef.current =
+        null;
+
+      setConferenceActive(false);
+
+      await live.stop();
+
+      if (segmentId) {
+        setConferenceSession(
+          (current) => {
+            if (!current) {
+              return current;
+            }
+
+            return updateSegmentInSession(
+              current,
+              segmentId,
+              closeTranscriptSegment
+            );
+          }
+        );
+
+        /*
+         * Keep the last segment selected so
+         * its language direction and final
+         * transcript remain visible.
+         */
+        setActiveConferenceSegmentId(
+          segmentId
+        );
+      }
+
+      conferenceSegmentIdRef.current =
+        null;
+
+      setConferenceStatus(
+        "DISCONNECTED"
+      );
+    };
+
+  const endConference =
+    async () => {
+      if (conferenceLiveRef.current) {
+        await pauseConferenceCapture();
+      }
+
+      setConferenceSession(
+        (current) =>
+          current
+            ? closeTranscriptSession(
+                current
+              )
+            : current
+      );
+
+    };
 
   const startBoth = async () => {
     await Promise.all([
@@ -346,6 +642,350 @@ export default function Home() {
     );
   }
 
+  if (appView === "conference") {
+    const activeSegment =
+      conferenceSession?.segments.find(
+        (segment) =>
+          segment.id ===
+          activeConferenceSegmentId
+      );
+
+    const conferenceEnded =
+      conferenceSession?.endedAt != null;
+
+    return (
+      <main className="min-h-screen bg-slate-950 text-white">
+        <div className="mx-auto max-w-6xl px-6 py-10">
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+            <button
+              type="button"
+              onClick={() =>
+                setAppView("home")
+              }
+              className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold"
+            >
+              Back to Mode Selection
+            </button>
+
+            <div className="rounded-full border border-slate-700 px-4 py-2 text-xs font-semibold uppercase tracking-widest text-cyan-400">
+              Conference Mode
+            </div>
+          </div>
+
+          <header className="mb-8">
+            <p className="text-sm font-semibold uppercase tracking-[0.25em] text-cyan-400">
+              Nerdearla Vibeathon 2026
+            </p>
+
+            <h1 className="mt-2 text-4xl font-bold">
+              Live Conference
+            </h1>
+
+            <p className="mt-3 max-w-3xl text-slate-400">
+              Continuous bilingual transcription with persistent session segments.
+            </p>
+          </header>
+
+          <section className="rounded-3xl border border-slate-800 bg-slate-900 p-6">
+            <div className="grid gap-5 md:grid-cols-2">
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-widest text-slate-400">
+                  Conference title
+                </span>
+
+                <input
+                  value={conferenceTitle}
+                  onChange={(event) =>
+                    setConferenceTitle(
+                      event.target.value
+                    )
+                  }
+                  disabled={
+                    conferenceSession !==
+                    null
+                  }
+                  className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none disabled:opacity-60"
+                />
+              </label>
+
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-widest text-slate-400">
+                  Current speaker
+                </span>
+
+                <input
+                  value={conferenceSpeaker}
+                  onChange={(event) =>
+                    setConferenceSpeaker(
+                      event.target.value
+                    )
+                  }
+                  disabled={
+                    conferenceActive
+                  }
+                  className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none disabled:opacity-60"
+                />
+              </label>
+            </div>
+
+            <div className="mt-5">
+              <div className="text-xs font-semibold uppercase tracking-widest text-slate-400">
+                Translation direction
+              </div>
+
+              <div className="mt-2 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  disabled={
+                    conferenceActive
+                  }
+                  onClick={() =>
+                    setConferenceSourceLanguage(
+                      "en"
+                    )
+                  }
+                  className={
+                    conferenceSourceLanguage ===
+                    "en"
+                      ? "rounded-xl border border-cyan-400 bg-cyan-400/10 px-4 py-2 font-semibold text-cyan-300 disabled:opacity-50"
+                      : "rounded-xl border border-slate-700 px-4 py-2 font-semibold disabled:opacity-50"
+                  }
+                >
+                  English to Spanish
+                </button>
+
+                <button
+                  type="button"
+                  disabled={
+                    conferenceActive
+                  }
+                  onClick={() =>
+                    setConferenceSourceLanguage(
+                      "es"
+                    )
+                  }
+                  className={
+                    conferenceSourceLanguage ===
+                    "es"
+                      ? "rounded-xl border border-cyan-400 bg-cyan-400/10 px-4 py-2 font-semibold text-cyan-300 disabled:opacity-50"
+                      : "rounded-xl border border-slate-700 px-4 py-2 font-semibold disabled:opacity-50"
+                  }
+                >
+                  Spanish to English
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={
+                  startConferenceCapture
+                }
+                disabled={
+                  conferenceActive ||
+                  conferenceEnded
+                }
+                className="rounded-xl bg-white px-5 py-3 font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {conferenceEnded
+                  ? "Conference Ended"
+                  : conferenceSession
+                    ? "Resume Capture"
+                    : "Start Conference"}
+              </button>
+
+              <button
+                type="button"
+                onClick={
+                  pauseConferenceCapture
+                }
+                disabled={
+                  !conferenceActive
+                }
+                className="rounded-xl border border-slate-700 px-5 py-3 font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Pause Capture
+              </button>
+
+              <button
+                type="button"
+                onClick={
+                  endConference
+                }
+                disabled={
+                  !conferenceSession ||
+                  conferenceEnded
+                }
+                className="rounded-xl border border-red-900 px-5 py-3 font-semibold text-red-300 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                End Conference
+              </button>
+
+              <div className="ml-auto rounded-full border border-slate-700 px-3 py-2 text-xs font-semibold">
+                {conferenceEnded
+                  ? "ENDED"
+                  : conferenceStatus}
+              </div>
+            </div>
+
+            {conferenceError && (
+              <div className="mt-4 rounded-xl border border-red-900 bg-red-950/40 p-3 text-sm text-red-300">
+                {conferenceError}
+              </div>
+            )}
+          </section>
+
+          <section className="mt-6 grid gap-5 lg:grid-cols-2">
+            <TranscriptBox
+              title={
+                "Original - " +
+                (activeSegment
+                  ?.sourceLanguage === "es"
+                  ? "Spanish"
+                  : "English")
+              }
+              text={
+                activeSegment
+                  ?.originalText ?? ""
+              }
+              placeholder="Waiting for speech..."
+            />
+
+            <TranscriptBox
+              title={
+                "Translation - " +
+                (activeSegment
+                  ?.targetLanguage === "en"
+                  ? "English"
+                  : "Spanish")
+              }
+              text={
+                activeSegment
+                  ?.translatedText ?? ""
+              }
+              placeholder="Translation will appear here..."
+            />
+          </section>
+
+          <section className="mt-8 rounded-3xl border border-slate-800 bg-slate-900 p-6">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
+                  Session Memory
+                </div>
+
+                <h2 className="mt-1 text-2xl font-bold">
+                  {conferenceSession
+                    ?.title ??
+                    "No active conference"}
+                </h2>
+              </div>
+
+              <div className="text-sm text-slate-400">
+                {conferenceSession
+                  ?.segments.length ??
+                  0}{" "}
+                segment(s)
+              </div>
+            </div>
+
+            <div className="mt-6 space-y-4">
+              {conferenceSession &&
+              conferenceSession.segments
+                .length > 0 ? (
+                conferenceSession.segments.map(
+                  (segment, index) => (
+                    <article
+                      key={segment.id}
+                      className="rounded-2xl border border-slate-800 bg-slate-950 p-5"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <div className="text-xs font-semibold uppercase tracking-widest text-cyan-400">
+                            Segment{" "}
+                            {index + 1}
+                          </div>
+
+                          <div className="mt-1 font-semibold">
+                            {segment.speaker}
+                          </div>
+                        </div>
+
+                        <div className="text-xs uppercase text-slate-500">
+                          {segment.sourceLanguage}{" "}
+                          to{" "}
+                          {segment.targetLanguage}
+                          {" - "}
+                          {segment.endedAt
+                            ? "CLOSED"
+                            : "LIVE"}
+                        </div>
+                      </div>
+
+                      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                        <div>
+                          <div className="text-xs uppercase tracking-widest text-slate-500">
+                            Original
+                          </div>
+
+                          <p className="mt-2 whitespace-pre-wrap text-slate-200">
+                            {segment.originalText ||
+                              "Waiting for speech..."}
+                          </p>
+                        </div>
+
+                        <div>
+                          <div className="text-xs uppercase tracking-widest text-slate-500">
+                            Translation
+                          </div>
+
+                          <p className="mt-2 whitespace-pre-wrap text-slate-200">
+                            {segment.translatedText ||
+                              "Waiting for translation..."}
+                          </p>
+                        </div>
+                      </div>
+                    </article>
+                  )
+                )
+              ) : (
+                <p className="text-slate-500">
+                  Start the conference to create the first persistent segment.
+                </p>
+              )}
+            </div>
+          </section>
+
+          <section className="mt-8 rounded-2xl border border-slate-800 bg-slate-900 p-5">
+            <div className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
+              Technical Glossary
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              {TECHNICAL_GLOSSARY.map(
+                (entry) => (
+                  <span
+                    key={
+                      entry.canonical
+                    }
+                    className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs text-slate-300"
+                  >
+                    {entry.canonical}
+                  </span>
+                )
+              )}
+            </div>
+          </section>
+
+          <footer className="mt-6 text-sm text-slate-500">
+            H5 - Persistent conference session - Gemini Live - PCM 16 kHz
+          </footer>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-slate-950 text-white">
       <div className="mx-auto max-w-7xl px-6 py-10">
@@ -378,13 +1018,7 @@ export default function Home() {
           <div className="rounded-full border border-slate-700 px-4 py-2 text-xs font-semibold uppercase tracking-widest text-cyan-400">
 
 
-            {appView === "conference"
-
-
-              ? "Conference Mode"
-
-
-              : "Conversation Mode"}
+            Conversation Mode
 
 
           </div>

@@ -19,6 +19,15 @@ export type TranslationToken = {
   targetLanguage: string;
 };
 
+export type TranslationLanguage =
+  | "en"
+  | "es";
+
+export type LiveTranslationOptions = {
+  sourceLanguage?: TranslationLanguage;
+  targetLanguage?: TranslationLanguage;
+};
+
 export type LiveTranslationCallbacks = {
   onStatus: (
     status: LiveSessionStatus
@@ -88,11 +97,25 @@ export class LiveTranslationSession {
   private readonly callbacks:
     LiveTranslationCallbacks;
 
+  private readonly sourceLanguage:
+    TranslationLanguage;
+
+  private readonly targetLanguage:
+    TranslationLanguage;
+
   constructor(
     callbacks:
-      LiveTranslationCallbacks
+      LiveTranslationCallbacks,
+    options:
+      LiveTranslationOptions = {}
   ) {
     this.callbacks = callbacks;
+
+    this.sourceLanguage =
+      options.sourceLanguage ?? "en";
+
+    this.targetLanguage =
+      options.targetLanguage ?? "es";
   }
 
   async start(): Promise<void> {
@@ -110,6 +133,19 @@ export class LiveTranslationSession {
           "/api/translate-token",
           {
             method: "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+
+            body: JSON.stringify({
+              sourceLanguage:
+                this.sourceLanguage,
+
+              targetLanguage:
+                this.targetLanguage,
+            }),
           }
         );
 
@@ -161,7 +197,7 @@ export class LiveTranslationSession {
 
             translationConfig: {
               targetLanguageCode:
-                "es",
+                this.targetLanguage,
 
               echoTargetLanguage:
                 true,

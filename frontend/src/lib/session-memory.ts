@@ -74,3 +74,56 @@ export function closeTranscriptSession(
     endedAt: new Date().toISOString(),
   };
 }
+
+export function addSegmentToSession(
+  session: TranscriptSession,
+  segment: TranscriptSegment
+): TranscriptSession {
+  return {
+    ...session,
+    segments: [
+      ...session.segments,
+      segment,
+    ],
+  };
+}
+
+export function updateSegmentInSession(
+  session: TranscriptSession,
+  segmentId: string,
+  update: (
+    segment: TranscriptSegment
+  ) => TranscriptSegment
+): TranscriptSession {
+  return {
+    ...session,
+    segments: session.segments.map(
+      (segment) =>
+        segment.id === segmentId
+          ? update(segment)
+          : segment
+    ),
+  };
+}
+
+export function appendOriginalText(
+  segment: TranscriptSegment,
+  text: string
+): TranscriptSegment {
+  return {
+    ...segment,
+    originalText:
+      segment.originalText + text,
+  };
+}
+
+export function appendTranslatedText(
+  segment: TranscriptSegment,
+  text: string
+): TranscriptSegment {
+  return {
+    ...segment,
+    translatedText:
+      segment.translatedText + text,
+  };
+}
